@@ -6,9 +6,9 @@ use assembly_pack::{
     txt::{FileLine, Manifest, VersionLine},
 };
 use color_eyre::eyre::Context;
+use indicatif::ProgressBar;
 use std::{
     collections::BTreeMap,
-    ffi::OsStr,
     fs::File,
     io::{BufWriter, ErrorKind, Write},
     path::PathBuf,
@@ -49,9 +49,12 @@ pub struct Args {
 }
 
 struct Visitor {
+    pb: ProgressBar,
     conv: Converter,
     output: PathBuf,
-    ignore_pk: bool,
+    /// The previous manifest
+    prev: BTreeMap<String, FileLine>,
+    /// The new manifest
     manifest: Manifest,
 }
 
@@ -66,11 +69,8 @@ fn hash_to_path(hash: &MD5Sum) -> String {
 impl FsVisitor for Visitor {
     fn visit_file(&mut self, info: FileInfo) {
         let input = info.real();
-        if self.ignore_pk && input.extension() == Some(OsStr::new("pk")) {
-            return;
-        }
-
         let path = info.path();
+        self.pb.set_message(path.clone());
 
         let in_meta = match md5::md5sum(input) {
             Ok(meta) => meta,
@@ -79,6 +79,22 @@ impl FsVisitor for Visitor {
                 return;
             }
         };
+
+        if let Some(prev) = self.prev.remove(&path) {
+            if prev.filesize == in_meta.size && prev.hash == in_meta.hash {
+                // The lines should match, add and return
+                self.manifest.files.insert(path, prev);
+                return;
+            } else {
+                log::info!(
+                    "File {} was updated from {} to {}",
+                    path,
+                    prev.hash,
+                    in_meta.hash
+                );
+            }
+        }
+
         let outpath = self.output.join(hash_to_path(&in_meta.hash));
 
         let line = match md5::md5sum(&outpath) {
@@ -110,9 +126,7 @@ impl FsVisitor for Visitor {
                 }
             }
         };
-        //std::fs::rename(&output, &outpath).unwrap();
-
-        println!("{},{}", path, line);
+        self.manifest.files.insert(path, line);
     }
 }
 
@@ -120,6 +134,8 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
     let cache_dir = args.dir.join(&args.project.cache);
     let key: &str = args.project.key.as_deref().unwrap_or(args.name);
     let output = cache_dir.join(&key);
+
+    let pb = ProgressBar::new_spinner();
 
     let src_dir = args.dir.join(args.general.src);
     let dir_name = args.project.dir.as_deref().unwrap_or(args.name).to_owned();
@@ -134,7 +150,14 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
     let vname = args.cmd.name.unwrap_or_else(|| vnum.to_string());
     let version = VersionLine::new(vnum, vname);
 
+    let prev = match std::fs::metadata(&manifest) {
+        Ok(m) if m.is_file() => Manifest::from_file(&manifest)?.files,
+        _ => BTreeMap::new(),
+    };
+
     let mut visitor = Visitor {
+        pb: pb.clone(),
+        prev,
         manifest: Manifest {
             version,
             files: BTreeMap::new(),
@@ -143,11 +166,16 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
             generate_segment_index: false,
         },
         output,
-        ignore_pk: !args.cmd.include_pk,
     };
 
     log::info!("Scanning {} as {}", proj_dir.display(), dir_name);
     scan_dir(&mut visitor, dir_name, &proj_dir, true);
+
+    pb.finish();
+
+    for (k, _v) in visitor.prev {
+        log::info!("File {} was removed", k);
+    }
 
     let mf_file = File::create(&manifest).context("Failed to create manifest file")?;
     let mut mf_writer = BufWriter::new(mf_file);
