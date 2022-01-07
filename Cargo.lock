@@ -69,9 +69,9 @@ checksum = "8da52d66c7071e2e3fa2a1e5c6d088fec47b593032b254f5e980de8ea54454d6"
 
 [[package]]
 name = "assembly-pack"
-version = "0.5.0"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48e891666e1451a424793df2c0bdba941a924fc506a6f56c6dea08ab9cfdbb6c"
+checksum = "6387e5d79671aa792e74f00fa370fd09e5f00dc49a5b5f29af2fce2c8bf9b2bc"
 dependencies = [
  "adler32",
  "bincode",
@@ -378,6 +378,7 @@ dependencies = [
  "env_logger",
  "globset",
  "log",
+ "serde",
  "toml",
 ]
 

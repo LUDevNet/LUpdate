@@ -18,6 +18,8 @@ use assembly_pack::{
     txt::{FileMeta, Manifest},
 };
 
+use crate::ProjectArgs;
+
 #[derive(FromArgs, PartialEq, Debug)]
 /// pack files into PK archives
 #[argh(subcommand, name = "pack")]
@@ -67,23 +69,24 @@ fn win_join(base: &Path, path: &str) -> PathBuf {
     })
 }
 
-pub fn run(args: Args) -> color_eyre::Result<()> {
-    let base = args.path;
+pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
+    let base = args.cmd.path;
 
     let versions = args
+        .cmd
         .versions
         .unwrap_or_else(|| std::env::current_dir().unwrap());
 
-    let manifest_path = versions.join(&args.manifest);
+    let manifest_path = versions.join(&args.cmd.manifest);
     println!("manifest: {}", manifest_path.display());
     let manifest = Manifest::from_file(&manifest_path)?;
 
-    let pack_index_path = versions.join(&args.pki);
+    let pack_index_path = versions.join(&args.cmd.pki);
     println!("pack index: {}", pack_index_path.display());
     let pack_index = PackIndexFile::from_file(&pack_index_path)?;
 
-    let cachedir = args.cache;
-    let patchdir = cachedir.join(args.patcherdir);
+    let cachedir = args.cmd.cache;
+    let patchdir = cachedir.join(args.cmd.patcherdir);
     println!("patchdir: {}", patchdir.display());
 
     let export: HashSet<usize> = pack_index
