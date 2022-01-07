@@ -1,0 +1,13 @@
+[package]
+name = "lupdate"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+env_logger = "0.9"
+log = "0.4"
+argh = "0.1.7"
+globset = "0.4.8"
+color-eyre = "0.5.11"
+assembly-pack = "0.5"
+toml = "0.5.8"

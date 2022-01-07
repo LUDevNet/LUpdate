@@ -1,0 +1,10 @@
+title: LUpdate
+logo: https://assembly.lu-dev.net/rust-logo-lu.svg
+exclude:
+  - src
+  - Cargo.toml
+  - Cargo.lock
+
+remote_theme: LUDevNet/minimal
+show_latest_release: true
+show_downloads: true
