@@ -135,8 +135,6 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
     let key: &str = args.project.key.as_deref().unwrap_or(args.name);
     let output = cache_dir.join(&key);
 
-    let pb = ProgressBar::new_spinner();
-
     let src_dir = args.dir.join(args.general.src);
     let dir_name = args.project.dir.as_deref().unwrap_or(args.name).to_owned();
     let proj_dir = src_dir.join(&dir_name);
@@ -151,9 +149,19 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
     let version = VersionLine::new(vnum, vname);
 
     let prev = match std::fs::metadata(&manifest) {
-        Ok(m) if m.is_file() => Manifest::from_file(&manifest)?.files,
+        Ok(m) if m.is_file() => {
+            let mf = Manifest::from_file(&manifest)?;
+            log::info!(
+                "Loaded previous manifest v{}: {}",
+                mf.version.version,
+                mf.version.name
+            );
+            mf.files
+        }
         _ => BTreeMap::new(),
     };
+
+    let pb = ProgressBar::new_spinner();
 
     let mut visitor = Visitor {
         pb: pb.clone(),

@@ -17,6 +17,8 @@ use assembly_pack::{
     pki::core::PackIndexFile,
     txt::{FileMeta, Manifest},
 };
+use color_eyre::eyre::Context;
+use globset::Glob;
 
 use crate::ProjectArgs;
 
@@ -24,29 +26,9 @@ use crate::ProjectArgs;
 /// pack files into PK archives
 #[argh(subcommand, name = "pack")]
 pub struct Args {
-    /// the directory with all files
-    #[argh(positional)]
-    path: PathBuf,
-
-    /// the directory of the cache
-    #[argh(positional)]
-    cache: PathBuf,
-
-    /// the directory for manifests and PKI (default to current dir)
-    #[argh(positional)]
-    versions: Option<PathBuf>,
-
-    /// path to trunk.txt, relative to `versions`
-    #[argh(option, default = "String::from(\"trunk.txt\")")]
-    manifest: String,
-
-    /// path to primary.pki, relative to `versions`
-    #[argh(option, default = "String::from(\"primary.pki\")")]
-    pki: String,
-
-    /// name of the patcher directory
-    #[argh(option, default = "String::from(\"luclient\")")]
-    patcherdir: String,
+    #[argh(option, short = 'f', default = "String::from(\"*front*\")")]
+    /// string that needs to be contained in the pack file name
+    pub filter: String,
 }
 
 struct Writer<'a> {
@@ -70,31 +52,33 @@ fn win_join(base: &Path, path: &str) -> PathBuf {
 }
 
 pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
-    let base = args.cmd.path;
+    let cache_dir = args.dir.join(&args.project.cache);
+    let key: &str = args.project.key.as_deref().unwrap_or(args.name);
+    let output = cache_dir.join(&key);
 
-    let versions = args
-        .cmd
-        .versions
-        .unwrap_or_else(|| std::env::current_dir().unwrap());
+    let src_dir = args.dir.join(args.general.src);
 
-    let manifest_path = versions.join(&args.cmd.manifest);
-    println!("manifest: {}", manifest_path.display());
+    let mf_name = &args.project.pki.manifest;
+    let manifest_path = output.join(mf_name).with_extension("txt");
+    log::info!("manifest: {}", manifest_path.display());
     let manifest = Manifest::from_file(&manifest_path)?;
 
-    let pack_index_path = versions.join(&args.cmd.pki);
-    println!("pack index: {}", pack_index_path.display());
+    let pki_name = &args.project.pki.index;
+    let pack_index_path = output.join(pki_name).with_extension("pki");
+    log::info!("pack index: {}", pack_index_path.display());
     let pack_index = PackIndexFile::from_file(&pack_index_path)?;
 
-    let cachedir = args.cmd.cache;
-    let patchdir = cachedir.join(args.cmd.patcherdir);
-    println!("patchdir: {}", patchdir.display());
+    log::info!("patchdir: {}", output.display());
+
+    let glob = Glob::new(&args.cmd.filter).context("failed to process filter glob")?;
+    let matcher = glob.compile_matcher();
 
     let export: HashSet<usize> = pack_index
         .archives
         .iter()
         .enumerate()
         .filter_map(|(index, archive)| {
-            if archive.path.contains("front") {
+            if matcher.is_match(&archive.path) {
                 Some(index)
             } else {
                 None
@@ -114,8 +98,12 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
                 // File is in a pack we want
                 let pk = pack_files.entry(pk_id).or_insert_with(|| {
                     let name = &pack_index.archives[pk_id];
-                    let path = win_join(&base, &name.path);
+                    let path = win_join(&src_dir, &name.path);
                     println!("Opening PK {}", path.display());
+
+                    // FIXME: Don't delete, update
+                    let _ = std::fs::remove_file(&path);
+
                     PKHandle::open(&path).unwrap()
                 });
 
@@ -130,9 +118,9 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
                 };
 
                 let path = if is_compressed {
-                    patchdir.join(file.to_path())
+                    output.join(file.to_path())
                 } else {
-                    win_join(&base, &name)
+                    win_join(&src_dir, &name)
                 };
 
                 let mut writer = Writer { path: &path };
