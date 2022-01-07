@@ -62,18 +62,13 @@ pub struct ProjectConfig {
     ///
     /// defaults to `<name>`
     pub key: Option<String>,
-    /// Configure the PKI tool
-    #[serde(default)]
-    pub pki: PKIConfig,
-}
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-pub struct PKIConfig {
     /// Name of the generated PKI file
     ///
     /// relative to `{cache}/{key}`
     #[serde(default = "pk_index")]
-    pub index: PathBuf,
+    pub pki: PathBuf,
+
     /// Name of the generated manifest file
     ///
     /// relative to `{cache}/{key}`
@@ -87,15 +82,6 @@ fn pk_index() -> PathBuf {
 
 fn default_manifest() -> PathBuf {
     PathBuf::from("trunk")
-}
-
-impl Default for PKIConfig {
-    fn default() -> Self {
-        Self {
-            index: pk_index(),
-            manifest: default_manifest(),
-        }
-    }
 }
 
 impl Config {

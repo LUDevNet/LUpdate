@@ -10,22 +10,22 @@ with data:
 ```txt
 /LUpdate.toml
 /dev
-├──/project
-│  ├──/MyProject.exe
+├──/server
+│  ├──/MyServer.exe
 │  ├──/res
 │  │  ├──{cat1}
 │  │  ├──{cat2}
 │  │  ⋮
 │  │  └──{catN}
-│  └──/config.txt
-└──/server
-   ├──/MyServer.exe
+│  └──/config.toml
+└──/project
+   ├──/MyProject.exe
    ├──/res
    │  ├──{cat1}
    │  ├──{cat2}
    │  ⋮
    │  └──{catN}
-   └──/config.txt
+   └──/config.toml
 /cache
 ├──/luserver
 └──/luproject
@@ -52,7 +52,7 @@ src = "dev"
 
 [project.luserver]
 dir = "server"
-config = "config.txt"
+config = "config.toml"
 cache = "cache"
 ```
 
@@ -60,16 +60,18 @@ cache = "cache"
 
 Example:
 
-```
-pack=pack\cat1.pk
-add_dir=cat1\sub1
-add_dir=cat1\sub3
-end_pack
+```toml
+[pack.cat1]
+dirs = [
+   "cat1\sub1", 
+   "cat1\sub3",
+]
 
-pack=pack\cat2.pk
-add_dir=cat2\subA
-add_dir=cat2\subX
-end_pack
+[pack.cat2]
+dirs = [
+   "cat2\subA",
+   "cat2\subX"
+]
 ```
 
 ## Disclaimer

@@ -20,21 +20,6 @@ use crate::ProjectArgs;
 #[argh(subcommand, name = "cache")]
 /// scans a file tree, generating sd0 compressed files and a manifest file
 pub struct Args {
-    // /// the directory to scan for files
-    // #[argh(positional)]
-    // path: PathBuf,
-
-    // /// the directory of the cache
-    // #[argh(option)]
-    // output: Option<PathBuf>,
-
-    // /// a prefix to names
-    // #[argh(option, default = "String::new()")]
-    // prefix: String,
-
-    // /// name of the patcher directory
-    // #[argh(option, default = "String::from(\"luclient\")")]
-    // patcherdir: String,
     /// version number
     #[argh(option, short = 'v', default = "1")]
     version: u32,
@@ -141,7 +126,7 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
 
     std::fs::create_dir_all(&output).wrap_err("Failed to create output dir")?;
 
-    let mf_name = &args.project.pki.manifest;
+    let mf_name = &args.project.manifest;
     let manifest = output.join(mf_name).with_extension("txt");
 
     let vnum = args.cmd.version;

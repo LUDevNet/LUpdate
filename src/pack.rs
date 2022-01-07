@@ -58,12 +58,12 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
 
     let src_dir = args.dir.join(args.general.src);
 
-    let mf_name = &args.project.pki.manifest;
+    let mf_name = &args.project.manifest;
     let manifest_path = output.join(mf_name).with_extension("txt");
     log::info!("manifest: {}", manifest_path.display());
     let manifest = Manifest::from_file(&manifest_path)?;
 
-    let pki_name = &args.project.pki.index;
+    let pki_name = &args.project.pki;
     let pack_index_path = output.join(pki_name).with_extension("pki");
     log::info!("pack index: {}", pack_index_path.display());
     let pack_index = PackIndexFile::from_file(&pack_index_path)?;
