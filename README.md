@@ -63,14 +63,14 @@ Example:
 ```toml
 [pack.cat1]
 dirs = [
-   "cat1\sub1", 
-   "cat1\sub3",
+   "cat1\\sub1", 
+   "cat1\\sub3",
 ]
 
 [pack.cat2]
 dirs = [
-   "cat2\subA",
-   "cat2\subX"
+   "cat2\\subA",
+   "cat2\\subX"
 ]
 ```
 
