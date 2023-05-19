@@ -15,7 +15,7 @@ use assembly_pack::{
     crc::calculate_crc,
     pk::fs::{PKHandle, PKWriter},
     pki::core::PackIndexFile,
-    txt::{FileMeta, Manifest},
+    txt::Manifest,
 };
 use color_eyre::eyre::Context;
 use globset::Glob;
@@ -88,7 +88,7 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
 
     let mut pack_files = BTreeMap::new();
 
-    for (name, file) in manifest.files {
+    for (name, (file, _)) in manifest.files {
         let crc = calculate_crc(name.as_bytes());
 
         if let Some(lookup) = pack_index.files.get(&crc) {
@@ -108,14 +108,8 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
                 });
 
                 let is_compressed = lookup.category & 0xFF > 0;
-                let raw = FileMeta {
-                    size: file.filesize,
-                    hash: file.hash,
-                };
-                let compressed = FileMeta {
-                    size: file.compressed_filesize,
-                    hash: file.compressed_hash,
-                };
+                let raw = file.raw;
+                let compressed = file.compressed;
 
                 let path = if is_compressed {
                     output.join(file.to_path())

@@ -5,7 +5,14 @@ edition = "2021"
 
 [dependencies]
 argh = "0.1.7"
-assembly-pack = "0.5"
+assembly-pack = { version = "0.5.2", features = [
+    "pk",
+    "pki",
+    "sd0",
+    "md5sum",
+    "manifest",
+    "pki-gen-txt",
+] }
 color-eyre = "0.5.11"
 env_logger = "0.9"
 globset = "0.4.8"
