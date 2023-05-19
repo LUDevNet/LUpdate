@@ -10,6 +10,7 @@ use assembly_pack::{
     txt::{FileLine, FileMeta, Manifest, VersionLine},
 };
 use color_eyre::eyre::Context;
+use globset::{Glob, GlobSet, GlobSetBuilder};
 //use indicatif::ProgressBar;
 use std::{
     collections::BTreeMap,
@@ -36,10 +37,6 @@ pub struct Args {
     /// don't ignore pk files
     #[argh(switch, short = 'i')]
     include_pk: bool,
-
-    /// filter to limit files
-    #[argh(option, short = 'f')]
-    filter: Vec<String>,
 }
 
 #[derive(Default, Debug)]
@@ -48,11 +45,14 @@ struct Stats {
     compress: usize,
     updated: usize,
     total: usize,
+    ignored: usize,
 }
 
 struct Visitor {
     //pb: ProgressBar,
     stats: Stats,
+    include_glob: GlobSet,
+    exclude_glob: GlobSet,
     quickcheck: BTreeMap<u32, QuickCheck>,
     quickcheck_out: BufWriter<File>,
     conv: Converter,
@@ -106,9 +106,13 @@ struct QuickCheck {
 
 impl FsVisitor for Visitor {
     fn visit_file(&mut self, info: FileInfo) {
+        let path = info.path();
+        if !self.include_glob.is_match(&path) || self.exclude_glob.is_match(&path) {
+            self.stats.ignored += 1;
+            return;
+        }
         self.stats.total += 1;
         let input = info.real();
-        let path = info.path();
         let crc = calculate_crc(path.as_bytes());
         let meta = info.metadata().ok();
         let mtime = meta
@@ -223,6 +227,25 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
     let output = cache_dir.join(&key);
     std::fs::create_dir_all(&output).wrap_err("Failed to create output dir")?;
 
+    let include_glob = {
+        let mut builder = GlobSetBuilder::new();
+        if args.project.include.is_empty() {
+            builder.add(Glob::new("**")?);
+        } else {
+            for pattern in &args.project.include {
+                builder.add(Glob::new(pattern)?);
+            }
+        }
+        builder.build()?
+    };
+    let exclude_glob = {
+        let mut builder = GlobSetBuilder::new();
+        for pattern in &args.project.exclude {
+            builder.add(Glob::new(pattern)?);
+        }
+        builder.build()?
+    };
+
     let mut _quickcheck = File::options()
         .create(true)
         .write(true)
@@ -260,6 +283,8 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
 
     let mut visitor = Visitor {
         //pb: pb.clone(),
+        include_glob,
+        exclude_glob,
         stats: Stats::default(),
         quickcheck,
         quickcheck_out: BufWriter::new(_quickcheck),

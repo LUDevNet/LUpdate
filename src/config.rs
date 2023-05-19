@@ -44,6 +44,7 @@ pub struct ProjectConfig {
     ///
     /// relative to `general.src` (default to `<name>`)
     pub dir: Option<String>,
+
     /// Name of the config file
     ///
     /// relative to `project.<name>.dir`
@@ -51,11 +52,20 @@ pub struct ProjectConfig {
     /// defaults to `config.txt`
     #[serde(default = "config_txt")]
     pub config: PathBuf,
+
+    /// Glob patterns on which files to include into caching
+    #[serde(default)]
+    pub include: Vec<String>,
+    /// Glob patterns on which files to include into caching
+    #[serde(default)]
+    pub exclude: Vec<String>,
+
     /// Path to the cache dir
     ///
     /// relative to the directory of the config file
     #[serde(default = "cache_dir")]
     pub cache: PathBuf,
+
     /// Name of the cache subdirectory
     ///
     /// relative to `project.<name>.cache`
