@@ -222,7 +222,7 @@ fn scan_quickcheck<R: Read>(reader: &mut R) -> BTreeMap<u32, QuickCheck> {
 pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
     let cache_dir = args.dir.join(&args.project.cache);
     let key: &str = args.project.key.as_deref().unwrap_or(args.name);
-    let quickcheck_file = format!("{}.quickcheck.txt", key);
+    let quickcheck_file = format!("{}.quickcheck.txt", args.name);
     let quickcheck_path = cache_dir.join(quickcheck_file);
     let output = cache_dir.join(&key);
     std::fs::create_dir_all(&output).wrap_err("Failed to create output dir")?;
