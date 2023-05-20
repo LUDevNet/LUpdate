@@ -115,7 +115,7 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
         directory: paths.res_dir,
         output,
         manifest,
-        prefix: paths.prefix,
+        prefix: paths.res_prefix,
         pack_files: vec![],
     };
 

@@ -71,8 +71,9 @@ impl<'a, A> ProjectArgs<'a, A> {
             .to_str()
             .expect("project dir have ASCII name");
 
-        let prefix = self.project.prefix.clone().unwrap_or_else(|| {
-            let mut p = format!("{}\\", dir_name);
+        let prefix = self.project.prefix.clone().unwrap_or_else(|| format!("{}\\", dir_name));
+        let res_prefix = {
+            let mut p = prefix.clone();
             if !res_name.is_empty() {
                 for part in res_name.split(&['/', '\\']) {
                     p.push_str(part);
@@ -80,7 +81,7 @@ impl<'a, A> ProjectArgs<'a, A> {
                 }
             }
             p
-        });
+        };
         // Cache dir
         let cache_key = self.project.key.as_deref().unwrap_or(self.name);
         let cache_dir_parent = self.dir.join(&self.project.cache);
@@ -90,6 +91,7 @@ impl<'a, A> ProjectArgs<'a, A> {
             cache_dir,
             res_dir,
             prefix,
+            res_prefix,
         }
     }
 }
@@ -98,8 +100,9 @@ impl<'a, A> ProjectArgs<'a, A> {
 pub struct Paths {
     proj_dir: PathBuf,
     cache_dir: PathBuf,
-    res_dir: PathBuf,
     prefix: String,
+    res_dir: PathBuf,
+    res_prefix: String,
 }
 
 fn main() -> color_eyre::Result<()> {
