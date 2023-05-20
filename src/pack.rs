@@ -55,7 +55,6 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
     let cache_dir = args.dir.join(&args.project.cache);
     let key: &str = args.project.key.as_deref().unwrap_or(args.name);
     let output = cache_dir.join(&key);
-
     let src_dir = args.dir.join(args.general.src);
 
     let mf_name = &args.project.manifest;
@@ -91,7 +90,6 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
     let mut pack_files = BTreeMap::new();
 
     for (name, (file, _)) in manifest.files {
-        log::debug!("processing {}", name);
         let crc = calculate_crc(name.as_bytes());
 
         if let Some(lookup) = pack_index.files.get(&crc) {
@@ -103,7 +101,7 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
                 let pk = pack_files.entry(pk_id).or_insert_with(|| {
                     let name = &pack_index.archives[pk_id];
                     let path = win_join(&src_dir, &name.path);
-                    println!("Opening PK {}", path.display());
+                    log::info!("Opening PK {}", path.display());
 
                     // FIXME: Don't delete, update
                     let _ = std::fs::remove_file(&path);

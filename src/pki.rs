@@ -100,48 +100,22 @@ fn process_cfg(config: &mut Config, cfg: Cfg) {
 }
 
 pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
-    let src_dir = args.dir.join(args.general.src);
-    let dir = args.project.dir.as_deref().unwrap_or(args.name);
-    let cache_key = args.project.key.as_deref().unwrap_or(args.name);
-    let proj_dir = src_dir.join(&dir);
-    let dir_name = proj_dir
-        .file_name()
-        .expect("project dir to have a name")
-        .to_str()
-        .expect("project dir have ASCII name");
+    let paths = args.paths();
+    log::debug!("{:#?}", paths);
 
-    let res_name = args.project.res.clone().unwrap_or(args.general.res);
-    let res_dir = match res_name.as_str() {
-        "" => proj_dir.clone(),
-        path => proj_dir.join(path),
-    };
-    let cfg_path = proj_dir.join(&args.project.config);
-
-    let cache_dir = args.dir.join(&args.project.cache);
-    let directory = cache_dir.join(&cache_key);
+    let cfg_path = paths.proj_dir.join(&args.project.config);
 
     let pki_name = &args.project.pki;
-    let output = directory.join(pki_name).with_extension("pki");
+    let output = paths.cache_dir.join(pki_name).with_extension("pki");
 
     let mf_name = &args.project.manifest;
-    let manifest = directory.join(mf_name).with_extension("txt");
+    let manifest = paths.cache_dir.join(mf_name).with_extension("txt");
 
-    let prefix = args.project.prefix.clone().unwrap_or_else(|| {
-        let mut p = format!("{}\\", dir_name);
-        if !res_name.is_empty() {
-            for part in res_name.split(&['/', '\\']) {
-                p.push_str(part);
-                p.push('\\');
-            }
-        }
-        p
-    });
-    log::info!("prefix {}", prefix);
     let mut config = pki::gen::Config {
-        directory: res_dir,
+        directory: paths.res_dir,
         output,
         manifest,
-        prefix,
+        prefix: paths.prefix,
         pack_files: vec![],
     };
 

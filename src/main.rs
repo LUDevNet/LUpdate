@@ -54,6 +54,52 @@ impl<'a, A> ProjectArgs<'a, A> {
             cmd,
         }
     }
+
+    pub fn paths(&self) -> Paths {
+        let res_name = self.project.res.as_ref().unwrap_or(&self.general.res);
+        let dir = self.project.dir.as_deref().unwrap_or(self.name);
+
+        let src_dir = self.dir.join(&self.general.src);
+        let proj_dir = src_dir.join(&dir);
+        let res_dir = match res_name.as_str() {
+            "" => proj_dir.clone(),
+            path => proj_dir.join(path),
+        };
+        let dir_name = proj_dir
+            .file_name()
+            .expect("project dir to have a name")
+            .to_str()
+            .expect("project dir have ASCII name");
+
+        let prefix = self.project.prefix.clone().unwrap_or_else(|| {
+            let mut p = format!("{}\\", dir_name);
+            if !res_name.is_empty() {
+                for part in res_name.split(&['/', '\\']) {
+                    p.push_str(part);
+                    p.push('\\');
+                }
+            }
+            p
+        });
+        // Cache dir
+        let cache_key = self.project.key.as_deref().unwrap_or(self.name);
+        let cache_dir_parent = self.dir.join(&self.project.cache);
+        let cache_dir = cache_dir_parent.join(&cache_key);
+        Paths {
+            proj_dir,
+            cache_dir,
+            res_dir,
+            prefix,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Paths {
+    proj_dir: PathBuf,
+    cache_dir: PathBuf,
+    res_dir: PathBuf,
+    prefix: String,
 }
 
 fn main() -> color_eyre::Result<()> {
