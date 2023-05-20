@@ -26,7 +26,7 @@ use crate::ProjectArgs;
 /// pack files into PK archives
 #[argh(subcommand, name = "pack")]
 pub struct Args {
-    #[argh(option, short = 'f', default = "String::from(\"*front*\")")]
+    #[argh(option, short = 'f', default = "String::from(\"**\")")]
     /// string that needs to be contained in the pack file name
     pub filter: String,
 }
@@ -62,11 +62,13 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
     let manifest_path = output.join(mf_name).with_extension("txt");
     log::info!("manifest: {}", manifest_path.display());
     let manifest = Manifest::from_file(&manifest_path)?;
+    log::debug!("manifest has {} files", manifest.files.len());
 
     let pki_name = &args.project.pki;
     let pack_index_path = output.join(pki_name).with_extension("pki");
     log::info!("pack index: {}", pack_index_path.display());
     let pack_index = PackIndexFile::from_file(&pack_index_path)?;
+    log::info!("pack index has {} files", pack_index.files.len());
 
     log::info!("patchdir: {}", output.display());
 
@@ -89,11 +91,13 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
     let mut pack_files = BTreeMap::new();
 
     for (name, (file, _)) in manifest.files {
+        log::debug!("processing {}", name);
         let crc = calculate_crc(name.as_bytes());
 
         if let Some(lookup) = pack_index.files.get(&crc) {
             // File is to be packed
             let pk_id = lookup.pack_file as usize;
+            log::debug!("{} should be packed into {}", name, pk_id);
             if export.contains(&pk_id) {
                 // File is in a pack we want
                 let pk = pack_files.entry(pk_id).or_insert_with(|| {

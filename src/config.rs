@@ -23,6 +23,11 @@ pub struct GeneralConfig {
     /// defaults to `src`
     #[serde(default = "source_dir")]
     pub src: PathBuf,
+    /// The path of the `res` dir that is considered for packing
+    ///
+    /// relative to each project source dir
+    #[serde(default = "res_dir")]
+    pub res: String,
 }
 
 fn config_txt() -> PathBuf {
@@ -31,6 +36,10 @@ fn config_txt() -> PathBuf {
 
 fn source_dir() -> PathBuf {
     PathBuf::from("src")
+}
+
+fn res_dir() -> String {
+    String::from("res")
 }
 
 fn cache_dir() -> PathBuf {
@@ -84,6 +93,18 @@ pub struct ProjectConfig {
     /// relative to `{cache}/{key}`
     #[serde(default = "default_manifest")]
     pub manifest: PathBuf,
+
+    /// The path of the `res` dir that is considered for packing
+    ///
+    /// relative to each project source dir
+    #[serde(default)]
+    pub res: Option<String>,
+
+    /// The prefix of the `res` dir that is considered for packing
+    ///
+    /// relative to the parent of the project directory e.g. `<project-name>/res`
+    #[serde(default)]
+    pub prefix: Option<String>,
 }
 
 fn pk_index() -> PathBuf {

@@ -101,14 +101,24 @@ fn process_cfg(config: &mut Config, cfg: Cfg) {
 
 pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
     let src_dir = args.dir.join(args.general.src);
-    let dir_name = args.project.dir.as_deref().unwrap_or(args.name);
-    let proj_dir = src_dir.join(&dir_name);
-    let res_name = "res";
-    let res_dir = proj_dir.join(res_name);
+    let dir = args.project.dir.as_deref().unwrap_or(args.name);
+    let cache_key = args.project.key.as_deref().unwrap_or(args.name);
+    let proj_dir = src_dir.join(&dir);
+    let dir_name = proj_dir
+        .file_name()
+        .expect("project dir to have a name")
+        .to_str()
+        .expect("project dir have ASCII name");
+
+    let res_name = args.project.res.clone().unwrap_or(args.general.res);
+    let res_dir = match res_name.as_str() {
+        "" => proj_dir.clone(),
+        path => proj_dir.join(path),
+    };
     let cfg_path = proj_dir.join(&args.project.config);
 
     let cache_dir = args.dir.join(&args.project.cache);
-    let directory = cache_dir.join(&args.project.key.as_deref().unwrap_or(args.name));
+    let directory = cache_dir.join(&cache_key);
 
     let pki_name = &args.project.pki;
     let output = directory.join(pki_name).with_extension("pki");
@@ -116,7 +126,17 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
     let mf_name = &args.project.manifest;
     let manifest = directory.join(mf_name).with_extension("txt");
 
-    let prefix = format!("{}\\{}\\", dir_name, res_name);
+    let prefix = args.project.prefix.clone().unwrap_or_else(|| {
+        let mut p = format!("{}\\", dir_name);
+        if !res_name.is_empty() {
+            for part in res_name.split(&['/', '\\']) {
+                p.push_str(part);
+                p.push('\\');
+            }
+        }
+        p
+    });
+    log::info!("prefix {}", prefix);
     let mut config = pki::gen::Config {
         directory: res_dir,
         output,

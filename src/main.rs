@@ -60,6 +60,7 @@ fn main() -> color_eyre::Result<()> {
     env_logger::builder()
         .format_timestamp(None)
         .filter_level(LevelFilter::Info)
+        .parse_default_env()
         .init();
 
     let args: Args = argh::from_env();

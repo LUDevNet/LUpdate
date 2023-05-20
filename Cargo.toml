@@ -12,6 +12,7 @@ assembly-pack = { version = "0.5.2", features = [
     "md5sum",
     "manifest",
     "pki-gen-txt",
+    "log"
 ] }
 color-eyre = "0.5.11"
 env_logger = "0.9"
