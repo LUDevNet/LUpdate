@@ -52,10 +52,10 @@ fn win_join(base: &Path, path: &str) -> PathBuf {
 }
 
 pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
-    let cache_dir = args.dir.join(&args.project.cache);
-    let key: &str = args.project.key.as_deref().unwrap_or(args.name);
-    let output = cache_dir.join(&key);
-    let src_dir = args.dir.join(args.general.src);
+    let paths = args.paths();
+
+    let output = &paths.cache_dir;
+    //let src_dir = args.dir.join(args.general.src);
 
     let mf_name = &args.project.manifest;
     let manifest_path = output.join(mf_name).with_extension("txt");
@@ -87,7 +87,16 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
         })
         .collect();
 
+    let prefix = paths.res_prefix_path();
+
     let mut pack_files = BTreeMap::new();
+    let pack_paths = pack_index
+        .archives
+        .iter()
+        .map(|e| {
+            return e.path.strip_prefix(&prefix).unwrap();
+        })
+        .collect::<Vec<_>>();
 
     for (name, (file, _)) in manifest.files {
         let crc = calculate_crc(name.as_bytes());
@@ -99,11 +108,20 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
             if export.contains(&pk_id) {
                 // File is in a pack we want
                 let pk = pack_files.entry(pk_id).or_insert_with(|| {
-                    let name = &pack_index.archives[pk_id];
-                    let path = win_join(&src_dir, &name.path);
+                    let name = pack_paths[pk_id];
+
+                    let path = win_join(&paths.proj_dir, name);
                     log::info!("Opening PK {}", path.display());
 
                     // FIXME: Don't delete, update
+                    if let Some(parent) = path.parent() {
+                        if let Err(e) = std::fs::create_dir_all(parent) {
+                            log::error!("Failed to create pack dir {}: {e}", parent.display());
+                        }
+                    } else {
+                        log::warn!("Could not get parent dir for {}", path.display());
+                    }
+
                     let _ = std::fs::remove_file(&path);
 
                     PKHandle::open(&path).unwrap()
@@ -116,7 +134,8 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
                 let path = if is_compressed {
                     output.join(file.to_path())
                 } else {
-                    win_join(&src_dir, &name)
+                    let relative_name = name.strip_prefix(&prefix).unwrap();
+                    win_join(&paths.proj_dir, relative_name)
                 };
 
                 let mut writer = Writer { path: &path };

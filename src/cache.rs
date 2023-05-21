@@ -11,7 +11,6 @@ use assembly_pack::{
 };
 use color_eyre::eyre::Context;
 use globset::{Glob, GlobSet, GlobSetBuilder};
-//use indicatif::ProgressBar;
 use std::{
     collections::BTreeMap,
     fs::{File, Metadata},
@@ -143,7 +142,7 @@ impl FsVisitor for Visitor {
 
         if let (Some(old), None) = (old_meta_pair.as_ref(), meta_pair.as_ref()) {
             self.stats.updated += 1;
-            log::info!(
+            log::debug!(
                 "File {} was updated from {} to {}",
                 path,
                 old.0.raw.hash,
@@ -220,11 +219,12 @@ fn scan_quickcheck<R: Read>(reader: &mut R) -> BTreeMap<u32, QuickCheck> {
 }
 
 pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
-    let cache_dir = args.dir.join(&args.project.cache);
-    let key: &str = args.project.key.as_deref().unwrap_or(args.name);
-    let quickcheck_file = format!("{}.quickcheck.txt", args.name);
-    let quickcheck_path = cache_dir.join(quickcheck_file);
-    let output = cache_dir.join(&key);
+    let paths = args.paths();
+
+    let quickcheck_path = paths
+        .cache_dir_parent
+        .join(format!("{}.quickcheck.txt", args.name));
+    let output = paths.cache_dir;
     std::fs::create_dir_all(&output).wrap_err("Failed to create output dir")?;
 
     let include_glob = {
@@ -255,9 +255,7 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
     _quickcheck.seek(SeekFrom::Start(0))?;
     _quickcheck.set_len(0)?; // clear the file
 
-    let src_dir = args.dir.join(args.general.src);
-    let dir_name = args.project.dir.as_deref().unwrap_or(args.name).to_owned();
-    let proj_dir = src_dir.join(&dir_name);
+    let proj_dir = paths.proj_dir;
 
     let mf_name = &args.project.manifest;
     let manifest = output.join(mf_name).with_extension("txt");
@@ -279,10 +277,7 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
         _ => BTreeMap::new(),
     };
 
-    //let pb = ProgressBar::new_spinner();
-
     let mut visitor = Visitor {
-        //pb: pb.clone(),
         include_glob,
         exclude_glob,
         stats: Stats::default(),
@@ -299,8 +294,8 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
         output,
     };
 
-    log::info!("Scanning {} as {}", proj_dir.display(), dir_name);
-    scan_dir(&mut visitor, dir_name, &proj_dir, true);
+    log::info!("Scanning {} as {}", proj_dir.display(), paths.prefix);
+    scan_dir(&mut visitor, paths.prefix, &proj_dir, true);
 
     //pb.finish();
 

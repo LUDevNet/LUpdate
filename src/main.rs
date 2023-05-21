@@ -71,13 +71,20 @@ impl<'a, A> ProjectArgs<'a, A> {
             .to_str()
             .expect("project dir have ASCII name");
 
-        let prefix = self.project.prefix.clone().unwrap_or_else(|| format!("{}\\", dir_name));
+        let prefix = self
+            .project
+            .prefix
+            .as_deref()
+            .unwrap_or(dir_name)
+            .replace('/', "\\");
         let res_prefix = {
             let mut p = prefix.clone();
             if !res_name.is_empty() {
                 for part in res_name.split(&['/', '\\']) {
+                    if !p.is_empty() {
+                        p.push('\\');
+                    }
                     p.push_str(part);
-                    p.push('\\');
                 }
             }
             p
@@ -89,6 +96,7 @@ impl<'a, A> ProjectArgs<'a, A> {
         Paths {
             proj_dir,
             cache_dir,
+            cache_dir_parent,
             res_dir,
             prefix,
             res_prefix,
@@ -100,9 +108,19 @@ impl<'a, A> ProjectArgs<'a, A> {
 pub struct Paths {
     proj_dir: PathBuf,
     cache_dir: PathBuf,
+    cache_dir_parent: PathBuf,
     prefix: String,
     res_dir: PathBuf,
     res_prefix: String,
+}
+
+impl Paths {
+    fn res_prefix_path(&self) -> String {
+        match self.res_prefix.as_str() {
+            "" => String::new(),
+            path => format!("{path}\\"),
+        }
+    }
 }
 
 fn main() -> color_eyre::Result<()> {
@@ -110,6 +128,7 @@ fn main() -> color_eyre::Result<()> {
         .format_timestamp(None)
         .filter_level(LevelFilter::Info)
         .parse_default_env()
+        .filter_module("globset", LevelFilter::Info)
         .init();
 
     let args: Args = argh::from_env();

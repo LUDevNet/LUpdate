@@ -112,10 +112,10 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
     let manifest = paths.cache_dir.join(mf_name).with_extension("txt");
 
     let mut config = pki::gen::Config {
+        prefix: paths.res_prefix_path(),
         directory: paths.res_dir,
         output,
         manifest,
-        prefix: paths.res_prefix,
         pack_files: vec![],
     };
 
