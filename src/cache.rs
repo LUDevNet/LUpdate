@@ -14,12 +14,12 @@ use globset::{Glob, GlobSet, GlobSetBuilder};
 use std::{
     collections::BTreeMap,
     fs::{File, Metadata},
-    io::{BufRead, BufReader, BufWriter, ErrorKind, Read, Seek, SeekFrom, Write},
+    io::{self, BufRead, BufReader, BufWriter, ErrorKind, Read, Seek, SeekFrom, Write},
     path::{Path, PathBuf},
     time::{Duration, UNIX_EPOCH},
 };
 
-use crate::ProjectArgs;
+use crate::{Paths, ProjectArgs};
 
 #[derive(FromArgs, PartialEq, Debug)]
 #[argh(subcommand, name = "cache")]
@@ -36,6 +36,10 @@ pub struct Args {
     /// don't ignore pk files
     #[argh(switch, short = 'i')]
     include_pk: bool,
+
+    /// name of a file containing one path per line
+    #[argh(option, short = 'F')]
+    files: Option<PathBuf>,
 }
 
 #[derive(Default, Debug)]
@@ -99,32 +103,52 @@ impl Visitor {
 }
 
 struct QuickCheck {
-    mtime: f64,
+    path: String,
+    mtime: Option<f64>,
     meta: FileMeta,
+}
+
+impl QuickCheck {
+    fn write(&self, out: &mut BufWriter<File>) -> io::Result<()> {
+        out.write_all(self.path.as_bytes())?;
+        out.write(b",")?;
+        if let Some(mtime) = self.mtime {
+            write!(out, "{}", mtime)?;
+        }
+        out.write(b",")?;
+        write!(out, "{}", self.meta.size)?;
+        out.write(b",")?;
+        writeln!(out, "{}", self.meta.hash)?;
+        Ok(())
+    }
 }
 
 impl FsVisitor for Visitor {
     fn visit_file(&mut self, info: FileInfo) {
-        let path = info.path();
+        self.visit(info.path(), info.real(), info.metadata().ok())
+    }
+}
+
+impl Visitor {
+    fn visit(&mut self, path: String, input: &Path, meta: Option<Metadata>) {
         if !self.include_glob.is_match(&path) || self.exclude_glob.is_match(&path) {
             self.stats.ignored += 1;
             return;
         }
         self.stats.total += 1;
-        let input = info.real();
         let crc = calculate_crc(path.as_bytes());
-        let meta = info.metadata().ok();
         let mtime = meta
             .as_ref()
             .and_then(|meta| meta.modified().ok())
             .and_then(|mtime| mtime.duration_since(UNIX_EPOCH).ok())
             .as_ref()
             .map(Duration::as_secs_f64);
-        let size = meta.as_ref().map(Metadata::len);
-        let quickcheck = self.quickcheck.get(&crc);
+        let _size = meta.as_ref().map(Metadata::len);
+        let quickcheck = self.quickcheck.remove(&crc);
 
         let in_meta = match quickcheck {
-            Some(qc) if Some(qc.mtime) == mtime => {
+            // FIXME: size check
+            Some(qc) if (mtime.is_some() && qc.mtime == mtime) => {
                 self.stats.quickcheck += 1;
                 qc.meta
             }
@@ -173,21 +197,55 @@ impl FsVisitor for Visitor {
             meta_pair = Some((line, linesum));
         }
         if let Some((meta_pair, linesum)) = meta_pair {
-            self.quickcheck_out.write_all(path.as_bytes()).unwrap();
-            self.quickcheck_out.write(b",").unwrap();
-            if let Some(mtime) = mtime {
-                write!(self.quickcheck_out, "{}", mtime).unwrap();
-            }
-            self.quickcheck_out.write(b",").unwrap();
-            if let Some(size) = size {
-                write!(self.quickcheck_out, "{}", size).unwrap();
-            }
-            self.quickcheck_out.write(b",").unwrap();
-            writeln!(self.quickcheck_out, "{}", in_meta.hash).unwrap();
+            let qc = QuickCheck {
+                path: path.clone(),
+                mtime,
+                meta: in_meta,
+            };
+            qc.write(&mut self.quickcheck_out).unwrap();
 
             self.manifest.files.insert(path, (meta_pair, linesum));
         }
     }
+}
+
+fn scan_files(
+    file_list_path: &Path,
+    visitor: &mut Visitor,
+    paths: &Paths,
+) -> color_eyre::Result<()> {
+    let files =
+        BufReader::new(File::open(&file_list_path).wrap_err_with(|| {
+            format!("Failed to open files list: {}", file_list_path.display())
+        })?);
+    let prefix = paths.prefix.replace('/', "\\");
+    let strip_prefix = match prefix.as_str() {
+        "" => String::new(),
+        path => format!("{path}\\"),
+    };
+    for line in files.lines() {
+        let line = line?.replace('/', "\\");
+        let base = line.strip_prefix(&strip_prefix).unwrap_or(&line).trim();
+        let parts = base.split('\\');
+        let mut real = paths.proj_dir.clone();
+        let path = format!("{strip_prefix}{base}");
+        for part in parts {
+            real.push(part);
+        }
+        let meta = match std::fs::metadata(&real) {
+            Ok(meta) => Some(meta),
+            Err(e) if e.kind() == ErrorKind::NotFound => {
+                log::warn!("File {:?} not found!", line);
+                continue;
+            }
+            Err(_e) => {
+                log::debug!("Failed to get file metadata: {_e}");
+                None
+            }
+        };
+        visitor.visit(path, &real, meta);
+    }
+    Ok(())
 }
 
 fn scan_quickcheck<R: Read>(reader: &mut R) -> BTreeMap<u32, QuickCheck> {
@@ -208,7 +266,8 @@ fn scan_quickcheck<R: Read>(reader: &mut R) -> BTreeMap<u32, QuickCheck> {
             quickcheck.insert(
                 crc,
                 QuickCheck {
-                    mtime,
+                    path: path.to_owned(),
+                    mtime: Some(mtime),
                     meta: FileMeta { size, hash },
                 },
             );
@@ -224,7 +283,7 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
     let quickcheck_path = paths
         .cache_dir_parent
         .join(format!("{}.quickcheck.txt", args.name));
-    let output = paths.cache_dir;
+    let output = paths.cache_dir.clone();
     std::fs::create_dir_all(&output).wrap_err("Failed to create output dir")?;
 
     let include_glob = {
@@ -255,7 +314,7 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
     _quickcheck.seek(SeekFrom::Start(0))?;
     _quickcheck.set_len(0)?; // clear the file
 
-    let proj_dir = paths.proj_dir;
+    let proj_dir = &paths.proj_dir;
 
     let mf_name = &args.project.manifest;
     let manifest = output.join(mf_name).with_extension("txt");
@@ -295,12 +354,20 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
     };
 
     log::info!("Scanning {} as {}", proj_dir.display(), paths.prefix);
-    scan_dir(&mut visitor, paths.prefix, &proj_dir, true);
 
-    //pb.finish();
-
-    for (k, _v) in visitor.prev {
-        log::info!("File {} was removed", k);
+    if let Some(file_list_path) = args.cmd.files {
+        scan_files(&file_list_path, &mut visitor, &paths)?;
+        for (key, value) in visitor.prev {
+            visitor.manifest.files.insert(key, value);
+        }
+        for (_key, value) in visitor.quickcheck {
+            value.write(&mut visitor.quickcheck_out)?;
+        }
+    } else {
+        scan_dir(&mut visitor, paths.prefix, &proj_dir, true);
+        for (k, _v) in visitor.prev {
+            log::info!("File {} was removed", k);
+        }
     }
 
     let mf_file = File::create(&manifest).context("Failed to create manifest file")?;
