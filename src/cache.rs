@@ -224,18 +224,17 @@ fn scan_files(
         path => format!("{path}\\"),
     };
     for line in files.lines() {
-        let line = line?.replace('/', "\\");
-        let base = line.strip_prefix(&strip_prefix).unwrap_or(&line).trim();
-        let parts = base.split('\\');
-        let mut real = paths.proj_dir.clone();
-        let path = format!("{strip_prefix}{base}");
-        for part in parts {
-            real.push(part);
-        }
+        let path = line?.replace('/', "\\");
+        let in_proj_path = path.strip_prefix(&strip_prefix).unwrap_or(&path).trim();
+        let real = {
+            let mut p = paths.proj_dir.clone();
+            p.extend(in_proj_path.split('\\'));
+            p
+        };
         let meta = match std::fs::metadata(&real) {
             Ok(meta) => Some(meta),
             Err(e) if e.kind() == ErrorKind::NotFound => {
-                log::warn!("File {:?} not found!", line);
+                log::warn!("File {:?} not found!", path);
                 continue;
             }
             Err(_e) => {
