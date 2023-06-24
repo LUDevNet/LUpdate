@@ -14,7 +14,7 @@ use globset::{Glob, GlobSet, GlobSetBuilder};
 use std::{
     collections::BTreeMap,
     fs::{File, Metadata},
-    io::{BufRead, BufReader, BufWriter, ErrorKind, Seek, SeekFrom},
+    io::{BufRead, BufReader, BufWriter, ErrorKind, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     time::{Duration, UNIX_EPOCH},
 };
@@ -104,15 +104,7 @@ impl Visitor {
             }
         }
     }
-}
 
-impl FsVisitor for Visitor {
-    fn visit_file(&mut self, info: FileInfo) {
-        self.visit(info.path(), info.real(), info.metadata().ok())
-    }
-}
-
-impl Visitor {
     fn visit(&mut self, path: String, input: &Path, meta: Option<Metadata>) {
         if !self.include_glob.is_match(&path) || self.exclude_glob.is_match(&path) {
             self.stats.ignored += 1;
@@ -192,44 +184,61 @@ impl Visitor {
     }
 }
 
+impl FsVisitor for Visitor {
+    fn visit_file(&mut self, info: FileInfo) {
+        self.visit(info.path(), info.real(), info.metadata().ok())
+    }
+}
+
 fn scan_files(
     file_list_path: &Path,
     visitor: &mut Visitor,
     paths: &Paths,
 ) -> color_eyre::Result<()> {
-    let files =
-        BufReader::new(File::open(&file_list_path).wrap_err_with(|| {
-            format!("Failed to open files list: {}", file_list_path.display())
-        })?);
+    let file_list_reader = File::open(&file_list_path)
+        .wrap_err_with(|| format!("Failed to open files list: {}", file_list_path.display()))?;
+    do_scan_files(file_list_reader, visitor, paths)
+}
+
+fn do_scan_file(visitor: &mut Visitor, paths: &Paths, line: &str, strip_prefix: &str) {
+    let path = line.replace('/', "\\");
+    let in_proj_path = path.strip_prefix(strip_prefix).unwrap_or(&path).trim();
+    let real = {
+        let mut p = paths.proj_dir.clone();
+        p.extend(in_proj_path.split('\\'));
+        p
+    };
+    let meta = match std::fs::metadata(&real) {
+        Ok(meta) => Some(meta),
+        Err(e) if e.kind() == ErrorKind::NotFound => {
+            // If the file is explicitly listed but was no found, remove it
+            log::info!("File {:?} not found! Removing from Manifest.", path);
+            let crc = calculate_crc(path.as_bytes());
+            let _ = visitor.quickcheck.remove(&crc);
+            let _ = visitor.prev.remove(&path);
+            return; // don't visit this file
+        }
+        Err(_e) => {
+            log::debug!("Failed to get file metadata: {_e}");
+            None
+        }
+    };
+    visitor.visit(path, &real, meta);
+}
+
+fn do_scan_files<R: Read>(
+    file_list_reader: R,
+    visitor: &mut Visitor,
+    paths: &Paths,
+) -> color_eyre::Result<()> {
+    let files = BufReader::new(file_list_reader);
     let prefix = paths.prefix.replace('/', "\\");
     let strip_prefix = match prefix.as_str() {
         "" => String::new(),
         path => format!("{path}\\"),
     };
     for line in files.lines() {
-        let path = line?.replace('/', "\\");
-        let in_proj_path = path.strip_prefix(&strip_prefix).unwrap_or(&path).trim();
-        let real = {
-            let mut p = paths.proj_dir.clone();
-            p.extend(in_proj_path.split('\\'));
-            p
-        };
-        let meta = match std::fs::metadata(&real) {
-            Ok(meta) => Some(meta),
-            Err(e) if e.kind() == ErrorKind::NotFound => {
-                // If the file is explicitly listed but was no found, remove it
-                log::info!("File {:?} not found! Removing from Manifest.", path);
-                let crc = calculate_crc(path.as_bytes());
-                let _ = visitor.quickcheck.remove(&crc);
-                let _ = visitor.prev.remove(&path);
-                continue;
-            }
-            Err(_e) => {
-                log::debug!("Failed to get file metadata: {_e}");
-                None
-            }
-        };
-        visitor.visit(path, &real, meta);
+        do_scan_file(visitor, paths, line?.as_str(), &strip_prefix);
     }
     Ok(())
 }
