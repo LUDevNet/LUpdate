@@ -77,6 +77,10 @@ impl<'a, A> ProjectArgs<'a, A> {
             .as_deref()
             .unwrap_or(dir_name)
             .replace('/', "\\");
+        let strip_prefix = match prefix.as_str() {
+            "" => String::new(),
+            path => format!("{path}\\"),
+        };
         let res_prefix = {
             let mut p = prefix.clone();
             if !res_name.is_empty() {
@@ -99,6 +103,7 @@ impl<'a, A> ProjectArgs<'a, A> {
             cache_dir_parent,
             res_dir,
             prefix,
+            strip_prefix,
             res_prefix,
         }
     }
@@ -110,6 +115,8 @@ pub struct Paths {
     cache_dir: PathBuf,
     cache_dir_parent: PathBuf,
     prefix: String,
+    // Prefix with a trailing slash (if not empty)
+    strip_prefix: String,
     res_dir: PathBuf,
     res_prefix: String,
 }

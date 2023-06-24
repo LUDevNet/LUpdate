@@ -42,6 +42,12 @@ pub struct Args {
     #[argh(switch, short = 'i')]
     include_pk: bool,
 
+    /// assume the filenames passed to -F / --files are already relative to `dir`
+    ///
+    /// i.e. don't strip the prefix (e.g. client\)
+    #[argh(switch, short = 'r')]
+    relative: bool,
+
     /// name of a file containing one path per line
     #[argh(option, short = 'F')]
     files: Option<PathBuf>,
@@ -183,17 +189,17 @@ impl Visitor {
         }
     }
 
-    fn do_scan_file(&mut self, paths: &Paths, line: &str, strip_prefix: &str) {
+    fn do_scan_file(&mut self, real_proj_dir: &Path, line: &str, strip_prefix: &str) {
         let path = line.replace('/', "\\");
         let in_proj_path = match path.strip_prefix(strip_prefix) {
             Some(o) => o.trim(),
             None => {
-                log::warn!("Prefix missing on path: {}", path);
+                log::warn!("Missing prefix {}: {}", strip_prefix, path);
                 return;
             }
         };
         let real = {
-            let mut p = paths.proj_dir.clone();
+            let mut p = real_proj_dir.to_owned();
             p.extend(in_proj_path.split('\\'));
             p
         };
@@ -224,27 +230,32 @@ impl Visitor {
         &mut self,
         file_list_reader: R,
         paths: &Paths,
+        relative: bool,
     ) -> color_eyre::Result<()> {
         let files = BufReader::new(file_list_reader);
-        let prefix = paths.prefix.replace('/', "\\");
-        let strip_prefix = match prefix.as_str() {
-            "" => String::new(),
-            path => format!("{path}\\"),
+        let strip_prefix = match relative {
+            true => "", // don't try to strip a prefix on relative paths
+            false => &paths.strip_prefix,
         };
         for line in files.lines() {
-            self.do_scan_file(paths, line?.as_str(), &strip_prefix);
+            self.do_scan_file(&paths.proj_dir, line?.as_str(), strip_prefix);
         }
         Ok(())
     }
 
-    fn scan_files(&mut self, file_list_path: &Path, paths: &Paths) -> color_eyre::Result<()> {
+    fn scan_files(
+        &mut self,
+        file_list_path: &Path,
+        paths: &Paths,
+        relative: bool,
+    ) -> color_eyre::Result<()> {
         if file_list_path == Path::new("-") {
-            self.do_scan_files(std::io::stdin(), paths)
+            self.do_scan_files(std::io::stdin(), paths, relative)
         } else {
             let file_list_reader = File::open(&file_list_path).wrap_err_with(|| {
                 format!("Failed to open files list: {}", file_list_path.display())
             })?;
-            self.do_scan_files(file_list_reader, paths)
+            self.do_scan_files(file_list_reader, paths, relative)
         }
     }
 }
@@ -338,7 +349,7 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
     log::info!("Scanning {} as {}", proj_dir.display(), paths.prefix);
 
     if let Some(file_list_path) = args.cmd.files {
-        visitor.scan_files(&file_list_path, &paths)?;
+        visitor.scan_files(&file_list_path, &paths, args.cmd.relative)?;
         // Write out untouched manifest files
         for (key, value) in visitor.prev {
             visitor.manifest.files.insert(key, value);
