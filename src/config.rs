@@ -51,8 +51,11 @@ fn cache_dir() -> PathBuf {
 pub struct ProjectConfig {
     /// Root directory of the project
     ///
-    /// relative to `general.src` (default to `<name>`)
+    /// relative to `src` or `general.src` (default to `<name>`)
     pub dir: Option<String>,
+
+    /// Override for `general.src`
+    pub src: Option<PathBuf>,
 
     /// Name of the config file
     ///

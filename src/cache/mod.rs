@@ -47,6 +47,15 @@ pub struct Args {
     files: Option<PathBuf>,
 }
 
+fn hash_to_path(hash: &MD5Sum) -> String {
+    const SEP: char = std::path::MAIN_SEPARATOR;
+    let hash = format!("{:?}", hash);
+    let mut chars = hash.chars();
+    let c1 = chars.next().unwrap();
+    let c2 = chars.next().unwrap();
+    format!("{}{SEP}{}{SEP}{}.sd0", c1, c2, hash)
+}
+
 #[derive(Default, Debug)]
 struct Stats {
     quickcheck: usize,
@@ -68,15 +77,6 @@ struct Visitor {
     prev: BTreeMap<String, FileLine>,
     /// The new manifest
     manifest: Manifest,
-}
-
-fn hash_to_path(hash: &MD5Sum) -> String {
-    const SEP: char = std::path::MAIN_SEPARATOR;
-    let hash = format!("{:?}", hash);
-    let mut chars = hash.chars();
-    let c1 = chars.next().unwrap();
-    let c2 = chars.next().unwrap();
-    format!("{}{SEP}{}{SEP}{}.sd0", c1, c2, hash)
 }
 
 impl Visitor {
@@ -182,65 +182,77 @@ impl Visitor {
             self.manifest.files.insert(path, (meta_pair, linesum));
         }
     }
+
+    fn do_scan_file(&mut self, paths: &Paths, line: &str, strip_prefix: &str) {
+        let path = line.replace('/', "\\");
+        let in_proj_path = match path.strip_prefix(strip_prefix) {
+            Some(o) => o.trim(),
+            None => {
+                log::warn!("Prefix missing on path: {}", path);
+                return;
+            }
+        };
+        let real = {
+            let mut p = paths.proj_dir.clone();
+            p.extend(in_proj_path.split('\\'));
+            p
+        };
+        let meta = match std::fs::metadata(&real) {
+            Ok(meta) => Some(meta),
+            Err(e) if e.kind() == ErrorKind::NotFound => {
+                // If the file is explicitly listed but was no found, remove it
+                log::warn!("File {:?} not found!", path);
+                let crc = calculate_crc(path.as_bytes());
+                if let Some(_) = self.quickcheck.remove(&crc) {
+                    log::debug!("Removed {:?} from quickcheck", path);
+                }
+                if let Some(_) = self.prev.remove(&path) {
+                    log::info!("Removed {:?} from manifest", path);
+                }
+                return; // don't visit this file
+            }
+            Err(e) => {
+                log::debug!("Failed to get file metadata: {}", e);
+                None
+            }
+        };
+        self.visit(path, &real, meta);
+    }
+
+    /// Small generic function that calls [`do_scan_file`] on every line of its input
+    fn do_scan_files<R: Read>(
+        &mut self,
+        file_list_reader: R,
+        paths: &Paths,
+    ) -> color_eyre::Result<()> {
+        let files = BufReader::new(file_list_reader);
+        let prefix = paths.prefix.replace('/', "\\");
+        let strip_prefix = match prefix.as_str() {
+            "" => String::new(),
+            path => format!("{path}\\"),
+        };
+        for line in files.lines() {
+            self.do_scan_file(paths, line?.as_str(), &strip_prefix);
+        }
+        Ok(())
+    }
+
+    fn scan_files(&mut self, file_list_path: &Path, paths: &Paths) -> color_eyre::Result<()> {
+        if file_list_path == Path::new("-") {
+            self.do_scan_files(std::io::stdin(), paths)
+        } else {
+            let file_list_reader = File::open(&file_list_path).wrap_err_with(|| {
+                format!("Failed to open files list: {}", file_list_path.display())
+            })?;
+            self.do_scan_files(file_list_reader, paths)
+        }
+    }
 }
 
 impl FsVisitor for Visitor {
     fn visit_file(&mut self, info: FileInfo) {
         self.visit(info.path(), info.real(), info.metadata().ok())
     }
-}
-
-fn scan_files(
-    file_list_path: &Path,
-    visitor: &mut Visitor,
-    paths: &Paths,
-) -> color_eyre::Result<()> {
-    let file_list_reader = File::open(&file_list_path)
-        .wrap_err_with(|| format!("Failed to open files list: {}", file_list_path.display()))?;
-    do_scan_files(file_list_reader, visitor, paths)
-}
-
-fn do_scan_file(visitor: &mut Visitor, paths: &Paths, line: &str, strip_prefix: &str) {
-    let path = line.replace('/', "\\");
-    let in_proj_path = path.strip_prefix(strip_prefix).unwrap_or(&path).trim();
-    let real = {
-        let mut p = paths.proj_dir.clone();
-        p.extend(in_proj_path.split('\\'));
-        p
-    };
-    let meta = match std::fs::metadata(&real) {
-        Ok(meta) => Some(meta),
-        Err(e) if e.kind() == ErrorKind::NotFound => {
-            // If the file is explicitly listed but was no found, remove it
-            log::info!("File {:?} not found! Removing from Manifest.", path);
-            let crc = calculate_crc(path.as_bytes());
-            let _ = visitor.quickcheck.remove(&crc);
-            let _ = visitor.prev.remove(&path);
-            return; // don't visit this file
-        }
-        Err(_e) => {
-            log::debug!("Failed to get file metadata: {_e}");
-            None
-        }
-    };
-    visitor.visit(path, &real, meta);
-}
-
-fn do_scan_files<R: Read>(
-    file_list_reader: R,
-    visitor: &mut Visitor,
-    paths: &Paths,
-) -> color_eyre::Result<()> {
-    let files = BufReader::new(file_list_reader);
-    let prefix = paths.prefix.replace('/', "\\");
-    let strip_prefix = match prefix.as_str() {
-        "" => String::new(),
-        path => format!("{path}\\"),
-    };
-    for line in files.lines() {
-        do_scan_file(visitor, paths, line?.as_str(), &strip_prefix);
-    }
-    Ok(())
 }
 
 fn include_glob(project: &ProjectConfig) -> Result<GlobSet, globset::Error> {
@@ -326,7 +338,7 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
     log::info!("Scanning {} as {}", proj_dir.display(), paths.prefix);
 
     if let Some(file_list_path) = args.cmd.files {
-        scan_files(&file_list_path, &mut visitor, &paths)?;
+        visitor.scan_files(&file_list_path, &paths)?;
         // Write out untouched manifest files
         for (key, value) in visitor.prev {
             visitor.manifest.files.insert(key, value);

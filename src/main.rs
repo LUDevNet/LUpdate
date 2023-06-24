@@ -57,9 +57,9 @@ impl<'a, A> ProjectArgs<'a, A> {
 
     pub fn paths(&self) -> Paths {
         let res_name = self.project.res.as_ref().unwrap_or(&self.general.res);
+        let src = self.project.src.as_deref().unwrap_or(&self.general.src);
+        let src_dir = self.dir.join(&src);
         let dir = self.project.dir.as_deref().unwrap_or(self.name);
-
-        let src_dir = self.dir.join(&self.general.src);
         let proj_dir = src_dir.join(&dir);
         let res_dir = match res_name.as_str() {
             "" => proj_dir.clone(),
