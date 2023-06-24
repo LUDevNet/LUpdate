@@ -7,19 +7,24 @@ use assembly_pack::{
     crc::calculate_crc,
     md5::{self, MD5Sum},
     sd0::fs::Converter,
-    txt::{FileLine, FileMeta, Manifest, VersionLine},
+    txt::{FileLine, Manifest, VersionLine},
 };
 use color_eyre::eyre::Context;
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use std::{
     collections::BTreeMap,
     fs::{File, Metadata},
-    io::{self, BufRead, BufReader, BufWriter, ErrorKind, Read, Seek, SeekFrom, Write},
+    io::{BufRead, BufReader, BufWriter, ErrorKind, Seek, SeekFrom},
     path::{Path, PathBuf},
     time::{Duration, UNIX_EPOCH},
 };
 
-use crate::{Paths, ProjectArgs};
+use crate::{cache::quickcheck::scan_quickcheck, config::ProjectConfig, Paths, ProjectArgs};
+
+use self::quickcheck::QuickCheck;
+
+mod manifest;
+mod quickcheck;
 
 #[derive(FromArgs, PartialEq, Debug)]
 #[argh(subcommand, name = "cache")]
@@ -52,7 +57,6 @@ struct Stats {
 }
 
 struct Visitor {
-    //pb: ProgressBar,
     stats: Stats,
     include_glob: GlobSet,
     exclude_glob: GlobSet,
@@ -99,27 +103,6 @@ impl Visitor {
                 Some(line)
             }
         }
-    }
-}
-
-struct QuickCheck {
-    path: String,
-    mtime: Option<f64>,
-    meta: FileMeta,
-}
-
-impl QuickCheck {
-    fn write(&self, out: &mut BufWriter<File>) -> io::Result<()> {
-        out.write_all(self.path.as_bytes())?;
-        out.write(b",")?;
-        if let Some(mtime) = self.mtime {
-            write!(out, "{}", mtime)?;
-        }
-        out.write(b",")?;
-        write!(out, "{}", self.meta.size)?;
-        out.write(b",")?;
-        writeln!(out, "{}", self.meta.hash)?;
-        Ok(())
     }
 }
 
@@ -234,7 +217,11 @@ fn scan_files(
         let meta = match std::fs::metadata(&real) {
             Ok(meta) => Some(meta),
             Err(e) if e.kind() == ErrorKind::NotFound => {
-                log::warn!("File {:?} not found!", path);
+                // If the file is explicitly listed but was no found, remove it
+                log::info!("File {:?} not found! Removing from Manifest.", path);
+                let crc = calculate_crc(path.as_bytes());
+                let _ = visitor.quickcheck.remove(&crc);
+                let _ = visitor.prev.remove(&path);
                 continue;
             }
             Err(_e) => {
@@ -247,33 +234,24 @@ fn scan_files(
     Ok(())
 }
 
-fn scan_quickcheck<R: Read>(reader: &mut R) -> BTreeMap<u32, QuickCheck> {
-    let mut quickcheck = BTreeMap::new();
-    let mut reader = BufReader::new(reader);
-    let mut buffer = String::new();
-    while let Ok(len) = reader.read_line(&mut buffer) {
-        if len == 0 {
-            break;
+fn include_glob(project: &ProjectConfig) -> Result<GlobSet, globset::Error> {
+    let mut builder = GlobSetBuilder::new();
+    if project.include.is_empty() {
+        builder.add(Glob::new("**")?);
+    } else {
+        for pattern in &project.include {
+            builder.add(Glob::new(pattern)?);
         }
-        let mut fields = buffer.split(',');
-        let path = fields.next().unwrap();
-        let crc = calculate_crc(path.as_bytes());
-        let mtime_str = fields.next().unwrap();
-        if let Ok(mtime) = mtime_str.parse() {
-            let size: u32 = fields.next().unwrap().parse().unwrap();
-            let hash: MD5Sum = fields.next().unwrap().trim().parse().unwrap();
-            quickcheck.insert(
-                crc,
-                QuickCheck {
-                    path: path.to_owned(),
-                    mtime: Some(mtime),
-                    meta: FileMeta { size, hash },
-                },
-            );
-        }
-        buffer.clear();
     }
-    quickcheck
+    builder.build()
+}
+
+fn exclude_glob(project: &ProjectConfig) -> Result<GlobSet, globset::Error> {
+    let mut builder = GlobSetBuilder::new();
+    for pattern in &project.exclude {
+        builder.add(Glob::new(pattern)?);
+    }
+    builder.build()
 }
 
 pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
@@ -285,24 +263,8 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
     let output = paths.cache_dir.clone();
     std::fs::create_dir_all(&output).wrap_err("Failed to create output dir")?;
 
-    let include_glob = {
-        let mut builder = GlobSetBuilder::new();
-        if args.project.include.is_empty() {
-            builder.add(Glob::new("**")?);
-        } else {
-            for pattern in &args.project.include {
-                builder.add(Glob::new(pattern)?);
-            }
-        }
-        builder.build()?
-    };
-    let exclude_glob = {
-        let mut builder = GlobSetBuilder::new();
-        for pattern in &args.project.exclude {
-            builder.add(Glob::new(pattern)?);
-        }
-        builder.build()?
-    };
+    let include_glob = include_glob(&args.project)?;
+    let exclude_glob = exclude_glob(&args.project)?;
 
     let mut _quickcheck = File::options()
         .create(true)
@@ -356,9 +318,11 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
 
     if let Some(file_list_path) = args.cmd.files {
         scan_files(&file_list_path, &mut visitor, &paths)?;
+        // Write out untouched manifest files
         for (key, value) in visitor.prev {
             visitor.manifest.files.insert(key, value);
         }
+        // Write out untouched quickcheck files
         for (_key, value) in visitor.quickcheck {
             value.write(&mut visitor.quickcheck_out)?;
         }
@@ -369,16 +333,7 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
         }
     }
 
-    let mf_file = File::create(&manifest).context("Failed to create manifest file")?;
-    let mut mf_writer = BufWriter::new(mf_file);
-
-    log::info!("Writing manifest to {}", manifest.display());
-    writeln!(mf_writer, "[version]")?;
-    writeln!(mf_writer, "{}", &visitor.manifest.version)?;
-    writeln!(mf_writer, "[files]")?;
-    for (k, (v, s)) in visitor.manifest.files {
-        writeln!(mf_writer, "{},{},{}", k, v, s)?;
-    }
+    manifest::write_manifest(visitor.manifest, &manifest).context("Failed to write manifest")?;
 
     log::info!("{:?}", visitor.stats);
 
