@@ -87,15 +87,11 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
         })
         .collect();
 
-    let prefix = paths.res_prefix_path();
-
     let mut pack_files = BTreeMap::new();
     let pack_paths = pack_index
         .archives
         .iter()
-        .map(|e| {
-            return e.path.strip_prefix(&prefix).unwrap();
-        })
+        .map(|e| e.path.strip_prefix(&paths.strip_prefix).unwrap())
         .collect::<Vec<_>>();
 
     for (name, (file, _)) in manifest.files {
@@ -134,7 +130,7 @@ pub fn run(args: ProjectArgs<Args>) -> color_eyre::Result<()> {
                 let path = if is_compressed {
                     output.join(file.to_path())
                 } else {
-                    let relative_name = name.strip_prefix(&prefix).unwrap();
+                    let relative_name = name.strip_prefix(&paths.strip_prefix).unwrap();
                     win_join(&paths.proj_dir, relative_name)
                 };
 
